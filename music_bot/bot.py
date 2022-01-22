@@ -5,8 +5,6 @@ import asyncio
 
 import discord
 
-from dotenv import load_dotenv
-
 from commands import Commands
 
 
@@ -43,6 +41,7 @@ class Bot(discord.Client):
 
 
 if __name__ == '__main__':
+    from dotenv import load_dotenv
     bot = Bot()
     load_dotenv()
     bot.run(os.getenv('DISCORD_TOKEN'))
