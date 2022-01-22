@@ -26,7 +26,7 @@ class Bot(discord.Client):
 
     async def on_ready(self):
         logging.info(f"{self.user} is ready")
-        self.commands = Commands(self.user, self.prefix)
+        self.commands = Commands(self, self.prefix)
 
     async def on_message(self, message):
         if message.author == self.user:
