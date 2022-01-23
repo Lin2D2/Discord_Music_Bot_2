@@ -1,23 +1,42 @@
 import youtubesearchpython as yts
+import youtube_dl
 
 
 class SearchResult:
-    def __init__(self, dict_search_result):
+    def __init__(self, dict_search_result, play_url):
         self.id = dict_search_result.get('id')
         self.title = dict_search_result.get('title')
         self.duration = dict_search_result.get('duration')
         self.thumbnail_url = dict_search_result.get('thumbnails')[0].get("url")
         self.channel = dict_search_result.get("channel").get("name")
         self.url = dict_search_result.get("link")
+        self.play_url = play_url
 
 
-def youtube_search(search):
+ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+    }
+
+
+def youtube_search(search, quick=False):
     search_results = yts.VideosSearch(search, limit=8).result()
-    return [SearchResult(result) for result in dict(search_results).get("result")]
+    results = []
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        for search_result in dict(search_results).get("result"):
+            song_info = ydl.extract_info(search_result.get("link"), download=False)  # TODO make this parallel
+            results.append(SearchResult(search_result, song_info["formats"][0]["url"]))
+            if quick:
+                break
+    return results
 
 
 def simple_search(search):
-    return youtube_search(search)[0]
+    return youtube_search(search, quick=True)[0]
 
 
 def advanced_search(search):

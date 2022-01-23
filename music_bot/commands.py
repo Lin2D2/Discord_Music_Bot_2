@@ -156,25 +156,25 @@ class Commands:
         if len(active_voice_clients) == 1:
             active_voice_client = active_voice_clients[0]
         else:
-            active_voice_client = await self.join(message)
+            active_voice_client = self.join(message)
         if not search_result:
             search_query = message.content.replace(f"{self.prefix}search ", "")
             search_result = search.simple_search(search_query)
-        song = self.client.storage_manager.request_song(search_result)  # TODO show download progress
-        source = await discord.FFmpegOpusAudio.from_probe(song.filename,
-                                                          # pipe=True,  # TODO do volume over pipe
-                                                          options=f'-vf "volume=1.0, loudnorm"',  # TODO get volume
-                                                          method='fallback')
-        await message.channel.send(
+
+        source = discord.FFmpegOpusAudio.from_probe(search_result.play_url, method='fallback')
+        message_send = message.channel.send(
             embed=embeds.search_results_message("Playing",
                                                 f"",
-                                                [song],
+                                                [search_result],
                                                 self.client.user),
             delete_after=30  # NOTE maybe after song duration
         )
+        if len(active_voice_clients) == 0:
+            active_voice_client = await active_voice_client
         if active_voice_client.is_playing():
             active_voice_client.stop()
-        active_voice_client.play(source)  # TODO add to list of playing and callback
+        active_voice_client.play(await source)
+        await message_send
         return
 
 

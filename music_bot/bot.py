@@ -9,7 +9,6 @@ import discord_components as dc
 from discord.ext import tasks
 
 from commands import Commands
-from storage_manager import StorageManager
 
 
 root = logging.getLogger()
@@ -28,12 +27,11 @@ class Bot(dc.ComponentsBot):
         self.prefix = "?"
         super().__init__(self.prefix, **options)
         self.commands_handler = None
-        self.storage_manager = StorageManager()
 
     async def on_ready(self):
         logging.info(f"{self.user} is ready")
         self.commands_handler = Commands(self, self.prefix)
-        self.check_activity_loop.start()
+        # self.check_activity_loop.start()
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -63,8 +61,10 @@ class Bot(dc.ComponentsBot):
 
     @tasks.loop(seconds=10)
     async def check_activity_loop(self):
+        # TODO bug leaves when there are others in channel
         for voice_client in self.voice_clients:
             channel_members = voice_client.channel.members
+            print(channel_members)
             if len(channel_members) == 1:
                 logging.info("leaving do to inactivity")
                 await voice_client.disconnect()
