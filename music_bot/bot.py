@@ -7,6 +7,7 @@ import asyncio
 import discord_components as dc
 
 from commands import Commands
+from storage_manager import StorageManager
 
 
 root = logging.getLogger()
@@ -25,6 +26,7 @@ class Bot(dc.ComponentsBot):
         self.prefix = "?"
         super().__init__(self.prefix, **options)
         self.commands_handler = None
+        self.storage_manager = StorageManager()
 
     async def on_ready(self):
         logging.info(f"{self.user} is ready")
@@ -50,6 +52,8 @@ class Bot(dc.ComponentsBot):
             search_result_selected = list(filter(lambda search_result: current_value.find(search_result.url) != -1,
                                                  active_searches.search_elements))[0]
             logging.info(f"{search_result_selected.title} selected")
+
+            song = self.storage_manager.request_song(search_result_selected)  # TODO show download progress
             # TODO play song
 
     async def on_button_click(self, interaction):
