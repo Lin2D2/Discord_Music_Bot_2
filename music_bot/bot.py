@@ -6,6 +6,8 @@ import asyncio
 # import discord
 import discord_components as dc
 
+from discord.ext import tasks
+
 from commands import Commands
 from storage_manager import StorageManager
 
@@ -31,6 +33,7 @@ class Bot(dc.ComponentsBot):
     async def on_ready(self):
         logging.info(f"{self.user} is ready")
         self.commands_handler = Commands(self, self.prefix)
+        self.check_activity_loop.start()
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -57,6 +60,14 @@ class Bot(dc.ComponentsBot):
 
     async def on_button_click(self, interaction):
         await interaction.respond(content="Button Clicked")
+
+    @tasks.loop(seconds=10)
+    async def check_activity_loop(self):
+        for voice_client in self.voice_clients:
+            channel_members = voice_client.channel.members
+            if len(channel_members) == 1:
+                logging.info("leaving do to inactivity")
+                await voice_client.disconnect()
 
 
 if __name__ == '__main__':
