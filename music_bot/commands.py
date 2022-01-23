@@ -1,8 +1,11 @@
 import logging
+import time
 
 import discord
+import discord_components as dc
 
 import embeds
+import search
 
 
 class Commands:
@@ -12,8 +15,11 @@ class Commands:
         self.commands = [
             CommandType("help", self.help, "list available commands"),
             CommandType("join", self.join, "connects to authors voice channel"),
-            CommandType("leave", self.leave, "disconnects from current voice channel")
+            CommandType("leave", self.leave, "disconnects from current voice channel"),
+            CommandType("search", self.search, "searches on youtube for the message after the command, "
+                                               "and lets you select out of 8 results"),
         ]
+        self.active_searches = []
 
     async def command(self, message):
         command = message.content.split(" ")[0].replace(self.prefix, "")
@@ -107,9 +113,39 @@ class Commands:
         )
         return
 
+    async def search(self, message):
+        search_query = message.content.replace(f"{self.prefix}search ", "")
+        search_results = search.youtube_search(search_query)
+        custom_id = f"song_search_{int(time.time())}"
+        await message.channel.send(embed=embeds.search_results_message("Search",
+                                                                       f"Search for: {search_query}",
+                                                                       search_results,
+                                                                       self.client.user),
+                                   components=[
+                                      dc.Select(
+                                           placeholder="Select Search result",
+                                           options=[
+                                               dc.SelectOption(label=search_result.title,
+                                                               value=search_result.url,
+                                                               description=f"({search_result.url}) "
+                                                                           f"{search_result.duration}")
+                                               for search_result in search_results
+                                           ],
+                                           custom_id=custom_id,
+                                       )
+                                  ],
+                                   delete_after=120)
+        self.active_searches.append(ActiveSearchType(custom_id, search_results))
+
 
 class CommandType:
     def __init__(self, command, function, description):
         self.command = command
         self.function = function
         self.description = description
+
+
+class ActiveSearchType:
+    def __init__(self, custom_id, search_elements):
+        self.id = custom_id
+        self.search_elements = search_elements
