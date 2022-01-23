@@ -53,8 +53,7 @@ class Bot(dc.ComponentsBot):
                                                  active_searches.search_elements))[0]
             logging.info(f"{search_result_selected.title} selected")
 
-            song = self.storage_manager.request_song(search_result_selected)  # TODO show download progress
-            # TODO play song
+            await self.commands_handler.play(active_searches.message, search_result_selected)
 
     async def on_button_click(self, interaction):
         await interaction.respond(content="Button Clicked")

@@ -16,8 +16,10 @@ class Commands:
             CommandType("help", self.help, "list available commands"),
             CommandType("join", self.join, "connects to authors voice channel"),
             CommandType("leave", self.leave, "disconnects from current voice channel"),
-            CommandType("search", self.search, "searches on youtube for the message after the command, "
+            CommandType("search", self.search, "searches on youtube for the query after the command, "
                                                "and lets you select out of 8 results"),
+            CommandType("play", self.play, "plays query after command from youtube, first search result, "
+                                           "you have to be in a voice channel"),
         ]
         self.active_searches = []
 
@@ -56,13 +58,14 @@ class Commands:
         author = message.author
         if author.voice.channel:
             try:
-                await author.voice.channel.connect()
+                voice_client = await author.voice.channel.connect()
                 await message.channel.send(
                     embed=embeds.simple_message("Joined",
                                                 f"Joined, {author.name} in {author.voice.channel.name}",
                                                 self.client.user),
                     delete_after=10
                 )
+                return voice_client
             except discord.ClientException:
                 await message.channel.send(
                     embed=embeds.simple_message("ERROR",
@@ -135,7 +138,44 @@ class Commands:
                                        )
                                   ],
                                    delete_after=120)
-        self.active_searches.append(ActiveSearchType(custom_id, search_results))
+        self.active_searches.append(ActiveSearchType(custom_id, message, search_results))
+
+    async def play(self, message, search_result=None):
+        if not message.author.voice:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            "Author not in any voice channel",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        else:
+            active_voice_clients = list(filter(lambda voice_client:
+                                               voice_client.channel == message.author.voice.channel,
+                                               self.client.voice_clients))
+        if len(active_voice_clients) == 1:
+            active_voice_client = active_voice_clients[0]
+        else:
+            active_voice_client = await self.join(message)
+        if not search_result:
+            search_query = message.content.replace(f"{self.prefix}search ", "")
+            search_result = search.simple_search(search_query)
+        song = self.client.storage_manager.request_song(search_result)  # TODO show download progress
+        source = await discord.FFmpegOpusAudio.from_probe(song.filename,
+                                                          # pipe=True,  # TODO do volume over pipe
+                                                          options=f'-vf "volume=1.0, loudnorm"',  # TODO get volume
+                                                          method='fallback')
+        await message.channel.send(
+            embed=embeds.search_results_message("Playing",
+                                                f"",
+                                                [song],
+                                                self.client.user),
+            delete_after=30  # NOTE maybe after song duration
+        )
+        if active_voice_client.is_playing():
+            active_voice_client.stop()
+        active_voice_client.play(source)  # TODO add to list of playing and callback
+        return
 
 
 class CommandType:
@@ -146,6 +186,7 @@ class CommandType:
 
 
 class ActiveSearchType:
-    def __init__(self, custom_id, search_elements):
+    def __init__(self, custom_id, message, search_elements):
         self.id = custom_id
+        self.message = message
         self.search_elements = search_elements

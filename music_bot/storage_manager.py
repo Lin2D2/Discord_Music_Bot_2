@@ -50,4 +50,4 @@ class StorageManager:
             result = SongType(search_result=search, filename=filename)
             self.db.insert(result.to_dict())
             return result
-        return result
+        return SongType(from_dict=result[0])
