@@ -20,6 +20,8 @@ class Commands:
                                                "and lets you select out of 8 results"),
             CommandType("play", self.play, "plays query after command from youtube, first search result, "
                                            "you have to be in a voice channel"),
+            CommandType("pause", self.pause, "list available commands"),
+            CommandType("resume", self.resume, "list available commands"),
         ]
         self.active_searches = []
 
@@ -125,7 +127,7 @@ class Commands:
                                                                        search_results,
                                                                        self.client.user),
                                    components=[
-                                      dc.Select(
+                                       dc.Select(
                                            placeholder="Select Search result",
                                            options=[
                                                dc.SelectOption(label=search_result.title,
@@ -136,7 +138,7 @@ class Commands:
                                            ],
                                            custom_id=custom_id,
                                        )
-                                  ],
+                                   ],
                                    delete_after=120)
         self.active_searches.append(ActiveSearchType(custom_id, message, search_results))
 
@@ -162,20 +164,72 @@ class Commands:
             search_result = search.simple_search(search_query)
 
         source = discord.FFmpegOpusAudio.from_probe(search_result.play_url, method='fallback')
-        message_send = message.channel.send(
-            embed=embeds.search_results_message("Playing",
-                                                f"",
-                                                [search_result],
-                                                self.client.user),
-            delete_after=30  # NOTE maybe after song duration
-        )
         if len(active_voice_clients) == 0:
             active_voice_client = await active_voice_client
+        message_send = message.channel.send(
+            embed=embeds.search_results_message(
+                "Playing",
+                f"",
+                [search_result],
+                self.client.user),
+            components=[
+                dc.Button(label="pause",
+                          custom_id=f"pause_button_{active_voice_client.channel.id}"),
+                dc.Button(label="resume",
+                          custom_id=f"resume_button_{active_voice_client.channel.id}"),
+            ],
+        )
         if active_voice_client.is_playing():
             active_voice_client.stop()
         active_voice_client.play(await source)
         await message_send
         return
+
+    async def pause(self, message):  # TODO with buttons
+        active_voice_clients = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
+                                           self.client.voice_clients))
+        if len(active_voice_clients) == 0:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            "Author not in any voice channel",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        active_voice_clients[0].pause()
+        await message.channel.send(
+            embed=embeds.simple_message("Pause",
+                                        "",
+                                        self.client.user),
+            delete_after=10
+        )
+
+    async def resume(self, message):  # TODO with buttons
+        active_voice_clients = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
+                                           self.client.voice_clients))
+        if len(active_voice_clients) == 0:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            "Author not in any voice channel",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        if active_voice_clients[0].is_paused():
+            active_voice_clients[0].resume()
+            await message.channel.send(
+                embed=embeds.simple_message("Resume",
+                                            "",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        await message.channel.send(
+            embed=embeds.simple_message("ERROR",
+                                        "Nothing to resume",
+                                        self.client.user),
+            delete_after=10
+        )
 
 
 class CommandType:

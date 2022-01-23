@@ -29,7 +29,11 @@ def youtube_search(search, quick=False):
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         for search_result in dict(search_results).get("result"):
             song_info = ydl.extract_info(search_result.get("link"), download=False)  # TODO make this parallel
-            results.append(SearchResult(search_result, song_info["formats"][0]["url"]))
+            play_urls_filtered = list(filter(lambda format:
+                                             format.get("format_note") == "tiny" and format.get("acodec") == "opus",
+                                             song_info.get("formats")))
+            play_urls_sorted = list(sorted(play_urls_filtered, key=lambda format: format.get("abr")))
+            results.append(SearchResult(search_result, play_urls_sorted[-1].get("url")))
             if quick:
                 break
     return results
