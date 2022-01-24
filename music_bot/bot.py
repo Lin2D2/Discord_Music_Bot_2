@@ -22,6 +22,11 @@ handler.setFormatter(formatter)
 root.addHandler(handler)
 
 
+stop_whitelist = [
+    "Grobhack#7188"
+]
+
+
 # class Bot(discord.Client): # NOTE discord.Client not supports interactions, with buttons and selections
 class Bot(dc.ComponentsBot):
     def __init__(self, **options):
@@ -62,6 +67,11 @@ class Bot(dc.ComponentsBot):
             await self.commands_handler.resume_pause(None, interaction)
             return
         if interaction.custom_id.find("stop_button") != -1:
+            if f"{interaction.author.name}#{interaction.author.discriminator}" not in stop_whitelist:
+                await interaction.respond(
+                    embed=embeds.simple_message("Not Allowed", "Not Allowed to stop, you can still pause", self.user)
+                )
+                return
             await self.commands_handler.stop(None, interaction)
             return
         await interaction.respond(
