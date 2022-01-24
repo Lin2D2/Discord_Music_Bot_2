@@ -10,7 +10,7 @@ from discord.ext import tasks
 
 import embeds
 
-from commands import Commands
+from commandhandler import CommandHandler
 
 root = logging.getLogger()
 root.setLevel(logging.INFO)
@@ -36,8 +36,9 @@ class Bot(dc.ComponentsBot):
 
     async def on_ready(self):
         logging.info(f"{self.user} is ready")
-        self.commands_handler = Commands(self, self.prefix)
+        self.commands_handler = CommandHandler(self, self.prefix)
         # self.check_activity_loop.start()
+        self.cache_limit_check_loop.start()
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -88,6 +89,10 @@ class Bot(dc.ComponentsBot):
             if len(channel_members) == 1:
                 logging.info("leaving do to inactivity")
                 await voice_client.disconnect()
+
+    @tasks.loop(hours=1)
+    async def cache_limit_check_loop(self):
+        self.commands_handler.search_handler.cache_limit_check()
 
 
 if __name__ == '__main__':

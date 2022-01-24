@@ -5,10 +5,10 @@ import discord
 import discord_components as dc
 
 import embeds
-import search
+from search import SearchHandler
 
 
-class Commands:
+class CommandHandler:
     def __init__(self, client, prefix):
         self.client = client
         self.prefix = prefix
@@ -25,6 +25,7 @@ class Commands:
             CommandType("stop", self.stop, "stop current song"),
         ]
         self.active_searches = []
+        self.search_handler = SearchHandler()
 
     async def command(self, message):
         command = message.content.split(" ")[0].replace(self.prefix, "")
@@ -127,7 +128,12 @@ class Commands:
 
     async def search(self, message):
         search_query = message.content.replace(f"{self.prefix}search ", "")
-        search_results = search.youtube_search(search_query)
+        await  message.channel.send(embed=embeds.simple_message("Searching",
+                                                                "Searching, just a moment",
+                                                                self.client.user),
+                                    delete_after=5,
+                                    )
+        search_results = self.search_handler.youtube_search(search_query)
         custom_id = f"song_search_{int(time.time())}"
         await message.channel.send(embed=embeds.search_results_message("Search",
                                                                        f"Search for: {search_query}",
@@ -146,7 +152,9 @@ class Commands:
                                            custom_id=custom_id,
                                        )
                                    ],
-                                   delete_after=120)
+                                   # delete_after=120  # TODO do this different and delete from self.active_searches
+                                   # TODO delete after interaction
+                                   )
         self.active_searches.append(ActiveSearchType(custom_id, message, search_results))
 
     async def play(self, message, search_result=None):
@@ -171,7 +179,7 @@ class Commands:
             if len(search_query) == 0:
                 await self.resume_pause(message)
                 return
-            search_result = search.simple_search(search_query)
+            search_result = self.search_handler.simple_search(search_query)
 
         source = discord.FFmpegOpusAudio.from_probe(search_result.play_url, method='fallback')
         if len(active_voice_clients) == 0:
@@ -189,6 +197,7 @@ class Commands:
                 dc.Button(label="stop",
                           custom_id=f"stop_button_{active_voice_client.channel.id}"),
             ],
+            # TODO delete after song is done
         )
         if active_voice_client.is_playing():
             active_voice_client.stop()
@@ -198,7 +207,8 @@ class Commands:
 
     async def resume_pause(self, message, interaction=None):
         if message:
-            active_voice_clients = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
+            active_voice_clients = list(filter(lambda voice_client:
+                                               voice_client.channel == message.author.voice.channel,
                                                self.client.voice_clients))
             if len(active_voice_clients) == 0:
                 await message.channel.send(
