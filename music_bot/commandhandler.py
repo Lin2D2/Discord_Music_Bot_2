@@ -59,61 +59,67 @@ class Commands:
 
     async def join(self, message):
         author = message.author
-        if author.voice.channel:
-            try:
-                voice_client = await author.voice.channel.connect()
-                await message.channel.send(
+        if not message.author.voice:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            "Author in any voice channels",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        try:
+            voice_client = await author.voice.channel.connect()
+            await message.channel.send(
                     embed=embeds.simple_message("Joined",
                                                 f"Joined, {author.name} in {author.voice.channel.name}",
                                                 self.client.user),
                     delete_after=10
-                )
-                return voice_client
-            except discord.ClientException:
-                await message.channel.send(
+            )
+            return voice_client
+        except discord.ClientException:
+            await message.channel.send(
                     embed=embeds.simple_message("ERROR",
                                                 "Bot already in voice channel",
                                                 self.client.user),
                     delete_after=10
-                )
+            )
             return
-        await message.channel.send(
-            embed=embeds.simple_message("ERROR",
-                                        "Author not in any voice channel",
-                                        self.client.user),
-            delete_after=10
-        )
-        return
 
     async def leave(self, message):
         # NOTE filter for current author
+        if not message.author.voice:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            "Author in any voice channels",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
         result_list = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
                                   self.client.voice_clients))
-        if len(result_list) == 1:
-            result = result_list[0]
-            await result.disconnect()
-            await message.channel.send(
-                embed=embeds.simple_message("Disconnected",
-                                            f"Disconnected from {result.channel.name}",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
         # NOTE filter for current server
-        result_list = list(filter(lambda voice_client: voice_client.guild.name == message.guid.name, result_list))
-        if len(result_list) == 1:
-            result = result_list[0]
-            await result.disconnect()
+        result_list = list(filter(lambda voice_client: voice_client.guild.name == message.guild.name, result_list))
+        if len(result_list) == 0:
             await message.channel.send(
-                embed=embeds.simple_message("Disconnected",
-                                            f"Disconnected from {result.channel.name}",
+                embed=embeds.simple_message("ERROR",
+                                            "Bot not in any voice channels",
                                             self.client.user),
                 delete_after=10
             )
             return
+        result = result_list[0]
+        if not result:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            "Bot not in any voice channels",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        await result.disconnect()
         await message.channel.send(
-            embed=embeds.simple_message("ERROR",
-                                        "Not in any voice channels",
+            embed=embeds.simple_message("Disconnected",
+                                        f"Disconnected from {result.channel.name}",
                                         self.client.user),
             delete_after=10
         )
