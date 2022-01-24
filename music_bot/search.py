@@ -63,7 +63,11 @@ class SearchHandler:
                     try:
                         result = SearchResultType(search_result, play_urls_sorted[-1].get("url"))
                     except IndexError:
-                        result = SearchResultType(search_result, play_urls_filtered[0].get("url"))
+                        try:
+                            result = SearchResultType(search_result, play_urls_filtered[0].get("url"))
+                        except IndexError:
+                            song_info = ydl.extract_info(link, download=False)
+                            result = SearchResultType(search_result, song_info.get("formats")[0].get("url"))
                     self.search_cache.update({link: result})
                 results.append(result)
                 if quick:
