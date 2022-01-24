@@ -58,45 +58,15 @@ class Bot(dc.ComponentsBot):
             await self.commands_handler.play(active_searches.message, search_result_selected)
 
     async def on_button_click(self, interaction):
-        # TODO join pause and resume button
-        if interaction.custom_id.find("pause_button") != -1:
-            active_voice_clients = list(filter(lambda voice_client:
-                                               str(voice_client.channel.id) == interaction.custom_id.
-                                               replace("pause_button_", ""),
-                                               self.voice_clients))
-            if len(active_voice_clients) == 0:
-                await interaction.respond(
-                    embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
-                                                self.user),
-                )
-                return
-            active_voice_clients[0].pause()
-            await interaction.respond(
-                embed=embeds.simple_message("Paused",
-                                            "",
-                                            self.user),
-            )
+        if interaction.custom_id.find("play_pause_button") != -1:
+            await self.commands_handler.resume_pause(None, interaction)
             return
-        if interaction.custom_id.find("resume_button") != -1:
-            active_voice_clients = list(
-                filter(lambda voice_client: str(voice_client.channel.id) == interaction.custom_id.
-                       replace("resume_button_", ""),
-                       self.voice_clients))
-            if len(active_voice_clients) == 0:
-                await interaction.respond(
-                    embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
-                                                self.user),
-                )
-                return
-            active_voice_clients[0].resume()
-            await interaction.respond(
-                embed=embeds.simple_message("Resumed",
-                                            "",
-                                            self.user),
-            )
+        if interaction.custom_id.find("stop_button") != -1:
+            await self.commands_handler.stop(None, interaction)
             return
+        await interaction.respond(
+            embed=embeds.simple_message("ERROR", "unknown Command", self.user)
+        )
         return
 
     @tasks.loop(seconds=10)

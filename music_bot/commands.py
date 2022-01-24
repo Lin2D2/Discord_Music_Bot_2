@@ -19,9 +19,10 @@ class Commands:
             CommandType("search", self.search, "searches on youtube for the query after the command, "
                                                "and lets you select out of 8 results"),
             CommandType("play", self.play, "plays query after command from youtube, first search result, "
-                                           "you have to be in a voice channel"),
-            CommandType("pause", self.pause, "list available commands"),
-            CommandType("resume", self.resume, "list available commands"),
+                                           "you have to be in a voice channel, or resumes if there ist not query"),
+            CommandType("pause", self.resume_pause, "pause current song"),
+            CommandType("resume", self.resume_pause, "resume current song"),
+            CommandType("stop", self.stop, "stop current song"),
         ]
         self.active_searches = []
 
@@ -160,7 +161,10 @@ class Commands:
         else:
             active_voice_client = self.join(message)
         if not search_result:
-            search_query = message.content.replace(f"{self.prefix}search ", "")
+            search_query = message.content.replace(f"{self.prefix}search", "").replace(f"{self.prefix}play", "").strip()
+            if len(search_query) == 0:
+                await self.resume_pause(message)
+                return
             search_result = search.simple_search(search_query)
 
         source = discord.FFmpegOpusAudio.from_probe(search_result.play_url, method='fallback')
@@ -173,10 +177,11 @@ class Commands:
                 [search_result],
                 self.client.user),
             components=[
-                dc.Button(label="pause",
-                          custom_id=f"pause_button_{active_voice_client.channel.id}"),
-                dc.Button(label="resume",
-                          custom_id=f"resume_button_{active_voice_client.channel.id}"),
+                dc.Button(label="play/pause",
+                          custom_id=f"play_pause_button_{active_voice_client.channel.id}"),
+
+                dc.Button(label="stop",
+                          custom_id=f"stop_button_{active_voice_client.channel.id}"),
             ],
         )
         if active_voice_client.is_playing():
@@ -185,51 +190,142 @@ class Commands:
         await message_send
         return
 
-    async def pause(self, message):  # TODO with buttons
-        active_voice_clients = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
-                                           self.client.voice_clients))
-        if len(active_voice_clients) == 0:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Author not in any voice channel",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
-        active_voice_clients[0].pause()
-        await message.channel.send(
-            embed=embeds.simple_message("Pause",
-                                        "",
-                                        self.client.user),
-            delete_after=10
-        )
-
-    async def resume(self, message):  # TODO with buttons
-        active_voice_clients = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
-                                           self.client.voice_clients))
-        if len(active_voice_clients) == 0:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Author not in any voice channel",
-                                            self.client.user),
-                delete_after=10
-            )
+    async def resume_pause(self, message, interaction=None):
+        if message:
+            active_voice_clients = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
+                                               self.client.voice_clients))
+            if len(active_voice_clients) == 0:
+                await message.channel.send(
+                    embed=embeds.simple_message("ERROR",
+                                                "Author not in any voice channel",
+                                                self.client.user),
+                    delete_after=10
+                )
+                return
+        elif interaction:
+            active_voice_clients = list(filter(lambda voice_client: interaction.custom_id.
+                                               find(str(voice_client.channel.id)) != -1,
+                                               self.client.voice_clients))
+            if len(active_voice_clients) == 0:
+                await interaction.respond(
+                    embed=embeds.simple_message("ERROR",
+                                                "Author not in any voice channel",
+                                                self.client.user),
+                )
+                return
+        else:
+            logging.warning("unexpected Event in resume")
             return
         if active_voice_clients[0].is_paused():
             active_voice_clients[0].resume()
+            if message:
+                await message.channel.send(
+                    embed=embeds.simple_message("Resumed",
+                                                "",
+                                                self.client.user),
+                )
+                return
+            if interaction:
+                await interaction.respond(
+                    embed=embeds.simple_message("Resumed",
+                                                "",
+                                                self.client.user),
+                )
+                return
+        if active_voice_clients[0].is_playing():
+            active_voice_clients[0].pause()
+            if message:
+                await message.channel.send(
+                    embed=embeds.simple_message("Paused",
+                                                "",
+                                                self.client.user),
+                    delete_after=10
+                )
+                return
+            if interaction:
+                await interaction.respond(
+                    embed=embeds.simple_message("Paused",
+                                                "",
+                                                self.client.user),
+                )
+                return
+        if message:
             await message.channel.send(
-                embed=embeds.simple_message("Resume",
-                                            "",
+                embed=embeds.simple_message("ERROR",
+                                            "Nothing to resume or pause",
                                             self.client.user),
                 delete_after=10
             )
             return
-        await message.channel.send(
-            embed=embeds.simple_message("ERROR",
-                                        "Nothing to resume",
-                                        self.client.user),
-            delete_after=10
-        )
+        if interaction:
+            await interaction.respond(
+                embed=embeds.simple_message("ERROR",
+                                            "Nothing to resume or pause",
+                                            self.client.user),
+            )
+            return
+        return
+
+    async def stop(self, message, interaction=None):
+        if message:
+            active_voice_clients = list(
+                filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
+                       self.client.voice_clients))
+            if len(active_voice_clients) == 0:
+                await message.channel.send(
+                    embed=embeds.simple_message("ERROR",
+                                                "Author not in any voice channel",
+                                                self.client.user),
+                    delete_after=10
+                )
+                return
+        elif interaction:
+            active_voice_clients = list(filter(lambda voice_client: interaction.custom_id.
+                                               find(str(voice_client.channel.id)) != -1,
+                                               self.client.voice_clients))
+            if len(active_voice_clients) == 0:
+                await interaction.respond(
+                    embed=embeds.simple_message("ERROR",
+                                                "Author not in any voice channel",
+                                                self.client.user),
+                )
+                return
+        else:
+            logging.warning("unexpected Event in stop")
+            return
+        if active_voice_clients[0].is_playing() or active_voice_clients[0].is_paused():
+            active_voice_clients[0].stop()
+            if message:
+                await message.channel.send(
+                    embed=embeds.simple_message("Stopped",
+                                                "",
+                                                self.client.user),
+                    delete_after=10
+                )
+                return
+            if interaction:
+                await interaction.respond(
+                    embed=embeds.simple_message("Stopped",
+                                                "",
+                                                self.client.user),
+                )
+                return
+        if message:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            "Nothing to stop",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        if interaction:
+            await interaction.respond(
+                embed=embeds.simple_message("ERROR",
+                                            "Nothing to stop",
+                                            self.client.user),
+            )
+            return
+        return
 
 
 class CommandType:
