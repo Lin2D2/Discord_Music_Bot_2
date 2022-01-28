@@ -24,7 +24,10 @@ class CommandHandler:
             CommandType("pause", self.resume_pause, "pause current song"),
             CommandType("resume", self.resume_pause, "resume current song"),
             CommandType("stop", self.stop, "stop current song"),
+            CommandType("volume up", self.volume_up, "global playback volume up"),
+            CommandType("volume down", self.volume_down, "global playback volume down"),
         ]
+        self.volume = 30
         self.active_searches = []
         self.search_handler = SearchHandler()
 
@@ -73,19 +76,19 @@ class CommandHandler:
         try:
             voice_client = await author.voice.channel.connect()
             await message.channel.send(
-                    embed=embeds.simple_message("Joined",
-                                                f"Joined, {author.name} in {author.voice.channel.name}",
-                                                self.client.user),
-                    delete_after=10
+                embed=embeds.simple_message("Joined",
+                                            f"Joined, {author.name} in {author.voice.channel.name}",
+                                            self.client.user),
+                delete_after=10
             )
             return voice_client
         except discord.ClientException:
             # TODO check if bot is in same voice channel
             await message.channel.send(
-                    embed=embeds.simple_message("ERROR",
-                                                "Bot already in voice channel",
-                                                self.client.user),
-                    delete_after=10
+                embed=embeds.simple_message("ERROR",
+                                            "Bot already in voice channel",
+                                            self.client.user),
+                delete_after=10
             )
             return
 
@@ -131,34 +134,32 @@ class CommandHandler:
 
     async def search(self, message):
         search_query = message.content.replace(f"{self.prefix}search ", "")
-        await  message.channel.send(embed=embeds.simple_message("Searching",
-                                                                "Searching, just a moment",
-                                                                self.client.user),
-                                    delete_after=5,
-                                    )
+        await message.channel.send(embed=embeds.simple_message("Searching",
+                                                               "Searching, just a moment",
+                                                               self.client.user),
+                                   delete_after=5,
+                                   )
         search_results = self.search_handler.youtube_search(search_query)
         custom_id = f"song_search_{int(time.time())}"
-        await message.channel.send(embed=embeds.search_results_message("Search",
-                                                                       f"Search for: {search_query}",
-                                                                       search_results,
-                                                                       self.client.user),
-                                   components=[
-                                       dc.Select(
-                                           placeholder="Select Search result",
-                                           options=[
-                                               dc.SelectOption(label=search_result.title,
-                                                               value=search_result.url,
-                                                               description=f"({search_result.url}) "
-                                                                           f"{search_result.duration}")
-                                               for search_result in search_results
-                                           ],
-                                           custom_id=custom_id,
-                                       )
-                                   ],
-                                   # delete_after=120  # TODO do this different and delete from self.active_searches
-                                   # TODO delete after interaction
-                                   )
-        self.active_searches.append(ActiveSearchType(custom_id, message, search_results))
+        send_message = await message.channel.send(embed=embeds.search_results_message("Search",
+                                                                                      f"Search for: {search_query}",
+                                                                                      search_results,
+                                                                                      self.client.user),
+                                                  components=[
+                                                      dc.Select(
+                                                          placeholder="Select Search result",
+                                                          options=[
+                                                              dc.SelectOption(label=search_result.title,
+                                                                              value=search_result.url,
+                                                                              description=f"({search_result.url}) "
+                                                                                          f"{search_result.duration}")
+                                                              for search_result in search_results
+                                                          ],
+                                                          custom_id=custom_id,
+                                                      )
+                                                  ],
+                                                  )
+        self.active_searches.append(ActiveSearchType(custom_id, message, send_message, search_results))
 
     async def play(self, message, search_result=None):
         if not message.author.voice:
@@ -184,7 +185,8 @@ class CommandHandler:
                 return
             search_result = self.search_handler.simple_search(search_query)
 
-        source = discord.FFmpegOpusAudio.from_probe(search_result.play_url, method='fallback')
+        # source = discord.FFmpegOpusAudio.from_probe(search_result.play_url, method='fallback')
+        source = discord.FFmpegPCMAudio(search_result.play_url)
         if len(active_voice_clients) == 0:
             active_voice_client = await active_voice_client
         message_send = message.channel.send(
@@ -196,7 +198,10 @@ class CommandHandler:
             components=[
                 dc.Button(label="play/pause",
                           custom_id=f"play_pause_button_{active_voice_client.channel.id}"),
-
+                dc.Button(label="volume up",
+                          custom_id=f"volume_up_button_{active_voice_client.channel.id}"),
+                dc.Button(label="volume down",
+                          custom_id=f"volume_down_button_{active_voice_client.channel.id}"),
                 dc.Button(label="stop",
                           custom_id=f"stop_button_{active_voice_client.channel.id}"),
             ],
@@ -204,7 +209,7 @@ class CommandHandler:
         )
         if active_voice_client.is_playing():
             active_voice_client.stop()
-        active_voice_client.play(await source)
+        active_voice_client.play(discord.PCMVolumeTransformer(source, volume=self.volume/100))
         await message_send
         return
 
@@ -346,6 +351,61 @@ class CommandHandler:
             return
         return
 
+    async def volume_set(self, message, interaction=None, status_message="Volume set"):
+        if message:
+            active_voice_clients = list(
+                filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
+                       self.client.voice_clients))
+            if len(active_voice_clients) == 0:
+                await message.channel.send(
+                    embed=embeds.simple_message("ERROR",
+                                                "Author not in any voice channel",
+                                                self.client.user),
+                    delete_after=10
+                )
+                return
+        elif interaction:
+            active_voice_clients = list(filter(lambda voice_client: interaction.custom_id.
+                                               find(str(voice_client.channel.id)) != -1,
+                                               self.client.voice_clients))
+            if len(active_voice_clients) == 0:
+                await interaction.respond(
+                    embed=embeds.simple_message("ERROR",
+                                                "Author not in any voice channel",
+                                                self.client.user),
+                )
+                return
+        else:
+            logging.warning("unexpected Event in stop")
+            return
+        active_voice_clients[0].source.volume = self.volume/100
+        if message:
+            await message.channel.send(
+                embed=embeds.simple_message(status_message,
+                                            f"Volume: {int(self.volume)}%",
+                                            self.client.user),
+                delete_after=10
+            )
+            return
+        if interaction:
+            await interaction.respond(
+                embed=embeds.simple_message(status_message,
+                                            f"Volume: {int(self.volume)}%",
+                                            self.client.user),
+            )
+            return
+        return
+
+    async def volume_up(self, message, interaction=None):
+        self.volume += 10
+        await self.volume_set(message, interaction, "Volume up")
+        return
+
+    async def volume_down(self, message, interaction=None):
+        self.volume -= 10
+        await self.volume_set(message, interaction, "Volume down")
+        return
+
 
 class CommandType:
     def __init__(self, command, function, description):
@@ -355,7 +415,8 @@ class CommandType:
 
 
 class ActiveSearchType:
-    def __init__(self, custom_id, message, search_elements):
+    def __init__(self, custom_id, message, send_message, search_elements):
         self.id = custom_id
         self.message = message
+        self.send_message = send_message
         self.search_elements = search_elements

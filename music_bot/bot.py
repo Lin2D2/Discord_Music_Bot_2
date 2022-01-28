@@ -62,8 +62,14 @@ class Bot(dc.ComponentsBot):
             logging.info(f"{search_result_selected.title} selected")
 
             await self.commands_handler.play(active_searches.message, search_result_selected)
+            await active_searches.send_message.delete()
+            self.commands_handler.active_searches.pop(
+                self.commands_handler.active_searches.index(active_searches)
+            )
+            return
 
     async def on_button_click(self, interaction):
+        # TODO delete interactions after some time or on next interaction
         if interaction.custom_id.find("play_pause_button") != -1:
             await self.commands_handler.resume_pause(None, interaction)
             return
@@ -74,6 +80,12 @@ class Bot(dc.ComponentsBot):
                 )
                 return
             await self.commands_handler.stop(None, interaction)
+            return
+        if interaction.custom_id.find("volume_up_button") != -1:
+            await self.commands_handler.volume_up(None, interaction)
+            return
+        if interaction.custom_id.find("volume_down_button") != -1:
+            await self.commands_handler.volume_down(None, interaction)
             return
         await interaction.respond(
             embed=embeds.simple_message("ERROR", "unknown Command", self.user)
