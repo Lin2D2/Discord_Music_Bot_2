@@ -34,6 +34,7 @@ class CommandHandler:
         if len(result_list) == 1:
             result = result_list[0]
             await result.function(message)
+            await message.delete()
             return
         if len(result_list) == 0:
             await message.channel.send(
@@ -79,6 +80,7 @@ class CommandHandler:
             )
             return voice_client
         except discord.ClientException:
+            # TODO check if bot is in same voice channel
             await message.channel.send(
                     embed=embeds.simple_message("ERROR",
                                                 "Bot already in voice channel",

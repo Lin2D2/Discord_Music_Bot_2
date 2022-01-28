@@ -80,13 +80,13 @@ class Bot(dc.ComponentsBot):
         )
         return
 
+    # TODO clean up loop
+
     @tasks.loop(seconds=10)
     async def check_activity_loop(self):
-        # TODO bug leaves when there are others in channel
         for voice_client in self.voice_clients:
-            channel_members = voice_client.channel.members
-            print(channel_members)
-            if len(channel_members) == 1:
+            voice_states = voice_client.channel.voice_states
+            if len(voice_states) == 1:
                 logging.info("leaving do to inactivity")
                 await voice_client.disconnect()
 
