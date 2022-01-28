@@ -21,7 +21,6 @@ formatter = logging.Formatter('%(asctime)s :: %(name)s :: %(levelname)s :: %(mes
 handler.setFormatter(formatter)
 root.addHandler(handler)
 
-
 stop_whitelist = [
     "Grobhack#7188"
 ]
@@ -92,7 +91,36 @@ class Bot(dc.ComponentsBot):
         )
         return
 
-    # TODO clean up loop
+    async def before_check_playing_loop(self, voice_client):
+        while True:
+            await asyncio.sleep(0.5)
+            if voice_client.is_playing():
+                break
+        self.check_playing_loop.start()
+
+    @tasks.loop(seconds=1)
+    async def check_playing_loop(self):
+        for voice_client in self.voice_clients:
+            queue_element = self.commands_handler.queue[self.commands_handler.queue_index]
+            if voice_client.channel.id == queue_element.voice_client.channel.id:
+                if not voice_client.is_paused() and not voice_client.is_playing():
+                    logging.info("song ended")
+                    if queue_element.message is not None:
+                        await queue_element.message.delete()
+                    if queue_element.info_message is not None:
+                        try:
+                            await queue_element.info_message.delete()
+                        except Exception:  # TODO still problem here when queued
+                            logging.warning("error deleting info_message")
+                    if len(self.commands_handler.queue) - 1 > self.commands_handler.queue_index:
+
+                        self.commands_handler.queue_index += 1
+                        await self.commands_handler.play(None, None, queue_element)
+                    else:
+                        self.check_playing_loop.stop()
+                        self.commands_handler.queue = []
+                        self.commands_handler.queue_index = 0
+                return
 
     @tasks.loop(seconds=10)
     async def check_activity_loop(self):

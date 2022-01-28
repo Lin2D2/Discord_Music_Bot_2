@@ -20,15 +20,18 @@ class CommandHandler:
             CommandType("search", self.search, "searches on youtube for the query after the command, "
                                                "and lets you select out of 8 results"),
             CommandType("play", self.play, "plays query after command from youtube, first search result, "
-                                           "you have to be in a voice channel, or resumes if there ist not query"),
+                                           "you have to be in a voice channel, or resumes if there ist no query"),
             CommandType("pause", self.resume_pause, "pause current song"),
             CommandType("resume", self.resume_pause, "resume current song"),
-            CommandType("stop", self.stop, "stop current song"),
+            CommandType("stop", self.stop, "stop current song, and clears queue"),
             CommandType("volume up", self.volume_up, "global playback volume up"),
             CommandType("volume down", self.volume_down, "global playback volume down"),
         ]
+        # TODO separate by guild
         self.volume = 30
+        self.queue_index = 0
         self.active_searches = []
+        self.queue = []
         self.search_handler = SearchHandler()
 
     async def command(self, message):
@@ -161,56 +164,86 @@ class CommandHandler:
                                                   )
         self.active_searches.append(ActiveSearchType(custom_id, message, send_message, search_results))
 
-    async def play(self, message, search_result=None):
-        if not message.author.voice:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Author not in any voice channel",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
+    async def play(self, message, search_result=None, queue=False):
+        # TODO queue cleaner solution
+        if queue:
+            search_result = self.queue[self.queue_index].search_result
+            active_voice_client = self.queue[self.queue_index].voice_client
         else:
-            active_voice_clients = list(filter(lambda voice_client:
-                                               voice_client.channel == message.author.voice.channel,
-                                               self.client.voice_clients))
-        if len(active_voice_clients) == 1:
-            active_voice_client = active_voice_clients[0]
-        else:
-            active_voice_client = self.join(message)
-        if not search_result:
-            search_query = message.content.replace(f"{self.prefix}search", "").replace(f"{self.prefix}play", "").strip()
-            if len(search_query) == 0:
-                await self.resume_pause(message)
+            if not message.author.voice:
+                await message.channel.send(
+                    embed=embeds.simple_message("ERROR",
+                                                "Author not in any voice channel",
+                                                self.client.user),
+                    delete_after=10
+                )
                 return
-            search_result = self.search_handler.simple_search(search_query)
+            else:
+                active_voice_clients = list(filter(lambda voice_client:
+                                                   voice_client.channel == message.author.voice.channel,
+                                                   self.client.voice_clients))
+            if len(active_voice_clients) == 1:
+                active_voice_client = active_voice_clients[0]
+            else:
+                active_voice_client = self.join(message)
+            if not search_result:
+                search_query = message.content.replace(f"{self.prefix}search", "").\
+                    replace(f"{self.prefix}play", "").strip()
+                if len(search_query) == 0:
+                    await self.resume_pause(message)
+                    return
+                search_result = self.search_handler.simple_search(search_query)
 
-        # source = discord.FFmpegOpusAudio.from_probe(search_result.play_url, method='fallback')
-        source = discord.FFmpegPCMAudio(search_result.play_url)
-        if len(active_voice_clients) == 0:
-            active_voice_client = await active_voice_client
-        message_send = message.channel.send(
-            embed=embeds.search_results_message(
-                "Playing",
-                f"",
-                [search_result],
-                self.client.user),
-            components=[
-                dc.Button(label="play/pause",
-                          custom_id=f"play_pause_button_{active_voice_client.channel.id}"),
-                dc.Button(label="volume up",
-                          custom_id=f"volume_up_button_{active_voice_client.channel.id}"),
-                dc.Button(label="volume down",
-                          custom_id=f"volume_down_button_{active_voice_client.channel.id}"),
-                dc.Button(label="stop",
-                          custom_id=f"stop_button_{active_voice_client.channel.id}"),
-            ],
-            # TODO delete after song is done
-        )
-        if active_voice_client.is_playing():
-            active_voice_client.stop()
-        active_voice_client.play(discord.PCMVolumeTransformer(source, volume=self.volume/100))
-        await message_send
+            if len(active_voice_clients) == 0:
+                active_voice_client = await active_voice_client
+        message_send_return = None
+        info_message_send_return = None
+        if not active_voice_client.is_playing():
+            if not message:
+                channel = self.queue[self.queue_index].channel
+            else:
+                channel = message.channel
+            if len(self.queue) == 0:
+                queued_after = 0
+            else:
+                queued_after = len(self.queue)-(self.queue_index+1)
+            message_send = channel.send(
+                embed=embeds.search_results_message(
+                    "Playing",
+                    f"Songs in queue after: {queued_after}",
+                    [search_result],
+                    self.client.user),
+                components=[
+                    dc.Button(label="play/pause",
+                              custom_id=f"play_pause_button_{active_voice_client.channel.id}"),
+                    dc.Button(label="volume up",
+                              custom_id=f"volume_up_button_{active_voice_client.channel.id}"),
+                    dc.Button(label="volume down",
+                              custom_id=f"volume_down_button_{active_voice_client.channel.id}"),
+                    dc.Button(label="stop",
+                              custom_id=f"stop_button_{active_voice_client.channel.id}"),
+                ],
+            )
+            source = discord.FFmpegPCMAudio(search_result.play_url)
+            active_voice_client.play(discord.PCMVolumeTransformer(source, volume=self.volume/100))
+            message_send_return = await message_send
+            if len(self.queue)-1 >= self.queue_index:
+                self.queue[self.queue_index].message = message_send_return
+        else:
+            info_message_send_return = await message.channel.send(
+                embed=embeds.search_results_message(
+                    f"Queued {search_result.title}",
+                    f"Songs in queue after: {len(self.queue)-self.queue_index}",
+                    [search_result],
+                    self.client.user),
+            )
+            self.queue[self.queue_index-1].info_message = info_message_send_return
+        if not queue:
+            logging.info(f"added {search_result.title} to queue")
+            self.queue.append(QueueType(search_result, message.channel, message_send_return,
+                                        info_message_send_return, active_voice_client))
+        if len(self.queue) == 1:
+            await self.client.before_check_playing_loop(active_voice_client)
         return
 
     async def resume_pause(self, message, interaction=None):
@@ -319,6 +352,9 @@ class CommandHandler:
             return
         if active_voice_clients[0].is_playing() or active_voice_clients[0].is_paused():
             active_voice_clients[0].stop()
+            self.client.check_playing_loop.stop()
+            self.queue = []
+            self.queue_index = 0
             if message:
                 await message.channel.send(
                     embed=embeds.simple_message("Stopped",
@@ -420,3 +456,12 @@ class ActiveSearchType:
         self.message = message
         self.send_message = send_message
         self.search_elements = search_elements
+
+
+class QueueType:
+    def __init__(self, search_result, channel, message, info_message, voice_client):
+        self.search_result = search_result
+        self.channel = channel
+        self.message = message
+        self.info_message = info_message
+        self.voice_client = voice_client
