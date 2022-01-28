@@ -4,8 +4,9 @@ import time
 import discord
 import discord_components as dc
 
-import embeds
-from search import SearchHandler
+import music_bot.embeds as embeds
+
+from music_bot.search import SearchHandler
 
 
 class CommandHandler:

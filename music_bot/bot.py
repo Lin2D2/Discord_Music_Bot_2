@@ -8,9 +8,9 @@ import discord_components as dc
 
 from discord.ext import tasks
 
-import embeds
+import music_bot.embeds as embeds
 
-from commandhandler import CommandHandler
+from music_bot.commandhandler import CommandHandler
 
 root = logging.getLogger()
 root.setLevel(logging.INFO)
@@ -37,7 +37,7 @@ class Bot(dc.ComponentsBot):
     async def on_ready(self):
         logging.info(f"{self.user} is ready")
         self.commands_handler = CommandHandler(self, self.prefix)
-        # self.check_activity_loop.start()
+        self.check_activity_loop.start()
         self.cache_limit_check_loop.start()
 
     async def on_message(self, message):
@@ -98,9 +98,10 @@ class Bot(dc.ComponentsBot):
 if __name__ == '__main__':
     from dotenv import load_dotenv
 
-    bot = Bot()
+    import music_bot
+
     load_dotenv()
-    bot.run(os.getenv('DISCORD_TOKEN'))
+    music_bot.bot.run(os.getenv('DISCORD_TOKEN'))
 
 # invite link for bot:
 #   https://discord.com/api/oauth2/authorize?client_id=934479656671912036&permissions=36929088&scope=bot

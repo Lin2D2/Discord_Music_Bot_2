@@ -1,5 +1,4 @@
 import logging
-import time
 
 import youtubesearchpython as yts
 import youtube_dl
