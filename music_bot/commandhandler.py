@@ -21,6 +21,7 @@ class CommandHandler:
                                                "and lets you select out of 8 results"),
             CommandType("play", self.play, "plays query after command from youtube, first search result, "
                                            "you have to be in a voice channel, or resumes if there ist no query"),
+            CommandType("next", self.next, "play next song in queue"),
             CommandType("pause", self.resume_pause, "pause current song"),
             CommandType("resume", self.resume_pause, "resume current song"),
             CommandType("stop", self.stop, "stop current song, and clears queue"),
@@ -216,6 +217,8 @@ class CommandHandler:
                 components=[
                     dc.Button(label="play/pause",
                               custom_id=f"play_pause_button_{active_voice_client.channel.id}"),
+                    dc.Button(label="next",
+                              custom_id=f"next_button_{active_voice_client.channel.id}"),
                     dc.Button(label="volume up",
                               custom_id=f"volume_up_button_{active_voice_client.channel.id}"),
                     dc.Button(label="volume down",
@@ -245,6 +248,46 @@ class CommandHandler:
         if len(self.queue) == 1:
             await self.client.before_check_playing_loop(active_voice_client)
         return
+
+    async def next(self, interaction=None):
+        if len(self.queue) - 1 > self.queue_index:
+            queue_element = self.queue[self.queue_index]
+            queue_element.voice_client.stop()
+            if queue_element.message is not None:
+                try:
+                    await queue_element.message.delete()
+                except discord.errors.NotFound:
+                    pass
+            if queue_element.info_message is not None:
+                try:
+                    await queue_element.info_message.delete()
+                except discord.errors.NotFound:
+                    pass
+            self.queue_index += 1
+            await self.play(None, None, self.queue[self.queue_index])
+            if interaction:
+                await interaction.respond(
+                    embed=embeds.simple_message(
+                        f"Next",
+                        f"",
+                        self.client.user),
+                )
+        else:
+            queue_element = self.queue[self.queue_index]
+            if interaction:
+                await interaction.respond(
+                    embed=embeds.simple_message(
+                        f"ERROR",
+                        f"No more Songs in Queue",
+                        self.client.user),
+                )
+            else:
+                await queue_element.channel.send(
+                    embed=embeds.simple_message(
+                        f"ERROR",
+                        f"No more Songs in Queue",
+                        self.client.user),
+                )
 
     async def resume_pause(self, message, interaction=None):
         if message:

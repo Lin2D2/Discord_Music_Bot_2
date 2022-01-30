@@ -3,7 +3,7 @@ import logging
 import sys
 import asyncio
 
-# import discord
+import discord
 import discord_components as dc
 
 from discord.ext import tasks
@@ -72,6 +72,9 @@ class Bot(dc.ComponentsBot):
         if interaction.custom_id.find("play_pause_button") != -1:
             await self.commands_handler.resume_pause(None, interaction)
             return
+        if interaction.custom_id.find("next_button") != -1:
+            await self.commands_handler.next(interaction)
+            return
         if interaction.custom_id.find("stop_button") != -1:
             if f"{interaction.author.name}#{interaction.author.discriminator}" not in stop_whitelist:
                 await interaction.respond(
@@ -106,14 +109,16 @@ class Bot(dc.ComponentsBot):
                 if not voice_client.is_paused() and not voice_client.is_playing():
                     logging.info("song ended")
                     if queue_element.message is not None:
-                        await queue_element.message.delete()
+                        try:
+                            await queue_element.message.delete()
+                        except discord.errors.NotFound:
+                            pass
                     if queue_element.info_message is not None:
                         try:
                             await queue_element.info_message.delete()
-                        except Exception:  # TODO still problem here when queued
-                            logging.warning("error deleting info_message")
+                        except discord.errors.NotFound:
+                            pass
                     if len(self.commands_handler.queue) - 1 > self.commands_handler.queue_index:
-
                         self.commands_handler.queue_index += 1
                         await self.commands_handler.play(None, None, queue_element)
                     else:
