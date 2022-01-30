@@ -21,10 +21,6 @@ formatter = logging.Formatter('%(asctime)s :: %(name)s :: %(levelname)s :: %(mes
 handler.setFormatter(formatter)
 root.addHandler(handler)
 
-stop_whitelist = [
-    "Grobhack#7188"
-]
-
 
 # class Bot(discord.Client): # NOTE discord.Client not supports interactions, with buttons and selections
 class Bot(dc.ComponentsBot):
@@ -65,34 +61,23 @@ class Bot(dc.ComponentsBot):
             self.commands_handler.active_searches.pop(
                 self.commands_handler.active_searches.index(active_searches)
             )
-            return
 
     async def on_button_click(self, interaction):
         # TODO delete interactions after some time or on next interaction
         if interaction.custom_id.find("play_pause_button") != -1:
             await self.commands_handler.resume_pause(None, interaction)
-            return
-        if interaction.custom_id.find("next_button") != -1:
+        elif interaction.custom_id.find("next_button") != -1:
             await self.commands_handler.next(interaction)
-            return
-        if interaction.custom_id.find("stop_button") != -1:
-            if f"{interaction.author.name}#{interaction.author.discriminator}" not in stop_whitelist:
-                await interaction.respond(
-                    embed=embeds.simple_message("Not Allowed", "Not Allowed to stop, you can still pause", self.user)
-                )
-                return
+        elif interaction.custom_id.find("stop_button") != -1:
             await self.commands_handler.stop(None, interaction)
-            return
-        if interaction.custom_id.find("volume_up_button") != -1:
+        elif interaction.custom_id.find("volume_up_button") != -1:
             await self.commands_handler.volume_up(None, interaction)
-            return
-        if interaction.custom_id.find("volume_down_button") != -1:
+        elif interaction.custom_id.find("volume_down_button") != -1:
             await self.commands_handler.volume_down(None, interaction)
-            return
-        await interaction.respond(
-            embed=embeds.simple_message("ERROR", "unknown Command", self.user)
-        )
-        return
+        else:
+            await interaction.respond(
+                embed=embeds.simple_message("ERROR", "unknown Command", self.user)
+            )
 
     async def before_check_playing_loop(self, voice_client):
         while True:
@@ -105,6 +90,7 @@ class Bot(dc.ComponentsBot):
     async def check_playing_loop(self):
         for voice_client in self.voice_clients:
             queue_element = self.commands_handler.queue[self.commands_handler.queue_index]
+            # TODO use next command here somehow
             if voice_client.channel.id == queue_element.voice_client.channel.id:
                 if not voice_client.is_paused() and not voice_client.is_playing():
                     logging.info("song ended")
@@ -125,7 +111,6 @@ class Bot(dc.ComponentsBot):
                         self.check_playing_loop.stop()
                         self.commands_handler.queue = []
                         self.commands_handler.queue_index = 0
-                return
 
     @tasks.loop(seconds=10)
     async def check_activity_loop(self):

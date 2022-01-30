@@ -15,7 +15,7 @@ class CommandHandler:
         self.prefix = prefix
         self.commands = [
             CommandType("help", self.help, "list available commands"),
-            CommandType("join", self.join, "connects to authors voice channel"),
+            CommandType("join", self.join_command, "connects to authors voice channel"),
             CommandType("leave", self.leave, "disconnects from current voice channel"),
             CommandType("search", self.search, "searches on youtube for the query after the command, "
                                                "and lets you select out of 8 results"),
@@ -34,6 +34,39 @@ class CommandHandler:
         self.active_searches = []
         self.queue = []
         self.search_handler = SearchHandler()
+
+    async def check_author_voice(self, author, message=None, interaction=None) -> bool:
+        if author.voice:
+            return True
+        else:
+            if message:
+                message.channel.send(
+                    embed=embeds.simple_message("ERROR",
+                                                f"author not in any voice channel",
+                                                self.client.user),
+                    delete_after=10
+                )
+            elif interaction:
+                interaction.respond(
+                    embed=embeds.simple_message("ERROR",
+                                                f"author not in any voice channel",
+                                                self.client.user),
+                    delete_after=10
+                )
+            else:
+                raise Exception("need message or interaction in check_author_voice")
+            return False
+
+    async def get_current_voice(self, voice_channel) -> discord.VoiceClient:
+        result_list_guild = list(filter(lambda voice_client: voice_client.guild.name == voice_channel.guild.name,
+                                        self.client.voice_clients))
+        if len(result_list_guild) == 0:
+            return await self.join(voice_channel)
+        result_list_channel = list(filter(lambda voice_client: voice_client.channel == voice_channel,
+                                          result_list_guild))
+        if len(result_list_channel) == 0:
+            return await self.join(voice_channel)
+        return result_list_channel[0]
 
     async def command(self, message):
         command = message.content.split(" ")[0].replace(self.prefix, "")
@@ -67,136 +100,87 @@ class CommandHandler:
         await message.channel.send(embed=embeds.simple_message("Help", answer, self.client.user), delete_after=120)
         return
 
-    async def join(self, message):
-        author = message.author
-        if not message.author.voice:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Author in any voice channels",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
-        try:
-            voice_client = await author.voice.channel.connect()
+    async def join_command(self, message):
+        if await self.check_author_voice(message.author, message, None):
+            await self.join(message.author.voice.channel, message, None)
+
+    async def join(self, voice_channel, message=None, interaction=None) -> discord.VoiceClient:
+        voice_client = await voice_channel.connect()
+        if message:
             await message.channel.send(
                 embed=embeds.simple_message("Joined",
-                                            f"Joined, {author.name} in {author.voice.channel.name}",
+                                            f"Joined, {message.author.name} in {voice_channel.name}",
                                             self.client.user),
                 delete_after=10
             )
-            return voice_client
-        except discord.ClientException:
-            # TODO check if bot is in same voice channel
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Bot already in voice channel",
+        elif interaction:
+            interaction.respond(
+                embed=embeds.simple_message("Joined",
+                                            f"Joined, {message.author.name} in {voice_channel.name}",
                                             self.client.user),
                 delete_after=10
             )
-            return
+        return voice_client
 
     async def leave(self, message):
-        # NOTE filter for current author
-        if not message.author.voice:
+        if await self.check_author_voice(message.author, message, None):
+            current_voice_client = await self.get_current_voice(message.author.voice.channel)
             await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Author in any voice channels",
+                embed=embeds.simple_message("Disconnected",
+                                            f"Disconnected from {current_voice_client.channel.name}",
                                             self.client.user),
                 delete_after=10
             )
+            await current_voice_client.disconnect()
             return
-        result_list = list(filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
-                                  self.client.voice_clients))
-        # NOTE filter for current server
-        result_list = list(filter(lambda voice_client: voice_client.guild.name == message.guild.name, result_list))
-        if len(result_list) == 0:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Bot not in any voice channels",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
-        result = result_list[0]
-        if not result:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Bot not in any voice channels",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
-        await result.disconnect()
-        await message.channel.send(
-            embed=embeds.simple_message("Disconnected",
-                                        f"Disconnected from {result.channel.name}",
-                                        self.client.user),
-            delete_after=10
-        )
-        return
 
     async def search(self, message):
-        search_query = message.content.replace(f"{self.prefix}search ", "")
-        await message.channel.send(embed=embeds.simple_message("Searching",
-                                                               "Searching, just a moment",
-                                                               self.client.user),
-                                   delete_after=5,
-                                   )
-        search_results = self.search_handler.youtube_search(search_query)
-        custom_id = f"song_search_{int(time.time())}"
-        send_message = await message.channel.send(embed=embeds.search_results_message("Search",
-                                                                                      f"Search for: {search_query}",
-                                                                                      search_results,
-                                                                                      self.client.user),
-                                                  components=[
-                                                      dc.Select(
-                                                          placeholder="Select Search result",
-                                                          options=[
-                                                              dc.SelectOption(label=search_result.title,
-                                                                              value=search_result.url,
-                                                                              description=f"({search_result.url}) "
-                                                                                          f"{search_result.duration}")
-                                                              for search_result in search_results
-                                                          ],
-                                                          custom_id=custom_id,
-                                                      )
-                                                  ],
-                                                  )
-        self.active_searches.append(ActiveSearchType(custom_id, message, send_message, search_results))
+        if await self.check_author_voice(message.author, message, None):
+            search_query = message.content.replace(f"{self.prefix}search ", "")
+            await message.channel.send(embed=embeds.simple_message("Searching",
+                                                                   "Searching, just a moment",
+                                                                   self.client.user),
+                                       delete_after=5,
+                                       )
+            search_results = self.search_handler.youtube_search(search_query)
+            custom_id = f"song_search_{int(time.time())}"
+            send_message = await message.channel.send(
+                embed=embeds.search_results_message("Search",
+                                                    f"Search for: {search_query}",
+                                                    search_results,
+                                                    self.client.user),
+                components=[
+                    dc.Select(
+                        placeholder="Select Search result",
+                        options=[
+                            dc.SelectOption(label=search_result.title,
+                                            value=search_result.url,
+                                            description=f"({search_result.url}) "
+                                                        f"{search_result.duration}")
+                            for search_result in search_results
+                        ],
+                        custom_id=custom_id,
+                    )
+                ],
+            )
+            self.active_searches.append(ActiveSearchType(custom_id, message, send_message, search_results))
 
     async def play(self, message, search_result=None, queue=False):
-        # TODO queue cleaner solution
         if queue:
             search_result = self.queue[self.queue_index].search_result
             active_voice_client = self.queue[self.queue_index].voice_client
         else:
-            if not message.author.voice:
-                await message.channel.send(
-                    embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
-                                                self.client.user),
-                    delete_after=10
-                )
-                return
-            else:
-                active_voice_clients = list(filter(lambda voice_client:
-                                                   voice_client.channel == message.author.voice.channel,
-                                                   self.client.voice_clients))
-            if len(active_voice_clients) == 1:
-                active_voice_client = active_voice_clients[0]
-            else:
-                active_voice_client = self.join(message)
             if not search_result:
-                search_query = message.content.replace(f"{self.prefix}search", "").\
+                search_query = message.content.replace(f"{self.prefix}search", ""). \
                     replace(f"{self.prefix}play", "").strip()
                 if len(search_query) == 0:
                     await self.resume_pause(message)
                     return
                 search_result = self.search_handler.simple_search(search_query)
-
-            if len(active_voice_clients) == 0:
-                active_voice_client = await active_voice_client
+            if await self.check_author_voice(message.author, message, None):
+                active_voice_client = await self.get_current_voice(message.author.voice.channel)
+            else:
+                return
         message_send_return = None
         info_message_send_return = None
         if not active_voice_client.is_playing():
@@ -207,7 +191,7 @@ class CommandHandler:
             if len(self.queue) == 0:
                 queued_after = 0
             else:
-                queued_after = len(self.queue)-(self.queue_index+1)
+                queued_after = len(self.queue) - (self.queue_index + 1)
             message_send = channel.send(
                 embed=embeds.search_results_message(
                     "Playing",
@@ -228,19 +212,19 @@ class CommandHandler:
                 ],
             )
             source = discord.FFmpegPCMAudio(search_result.play_url)
-            active_voice_client.play(discord.PCMVolumeTransformer(source, volume=self.volume/100))
+            active_voice_client.play(discord.PCMVolumeTransformer(source, volume=self.volume / 100))
             message_send_return = await message_send
-            if len(self.queue)-1 >= self.queue_index:
+            if len(self.queue) - 1 >= self.queue_index:
                 self.queue[self.queue_index].message = message_send_return
         else:
             info_message_send_return = await message.channel.send(
                 embed=embeds.search_results_message(
                     f"Queued {search_result.title}",
-                    f"Songs in queue after: {len(self.queue)-self.queue_index}",
+                    f"Songs in queue after: {len(self.queue) - self.queue_index}",
                     [search_result],
                     self.client.user),
             )
-            self.queue[self.queue_index-1].info_message = info_message_send_return
+            self.queue[self.queue_index - 1].info_message = info_message_send_return
         if not queue:
             logging.info(f"added {search_result.title} to queue")
             self.queue.append(QueueType(search_result, message.channel, message_send_return,
@@ -264,6 +248,11 @@ class CommandHandler:
                 except discord.errors.NotFound:
                     pass
             self.queue_index += 1
+            if self.queue[self.queue_index].info_message is not None:
+                try:
+                    await self.queue[self.queue_index].info_message.delete()
+                except discord.errors.NotFound:
+                    pass
             await self.play(None, None, self.queue[self.queue_index])
             if interaction:
                 await interaction.respond(
@@ -291,111 +280,84 @@ class CommandHandler:
 
     async def resume_pause(self, message, interaction=None):
         if message:
-            active_voice_clients = list(filter(lambda voice_client:
-                                               voice_client.channel == message.author.voice.channel,
-                                               self.client.voice_clients))
-            if len(active_voice_clients) == 0:
+            if not await self.check_author_voice(message.author, message, None):
+                return
+            else:
+                active_voice_client = await self.get_current_voice(message.author.voice.channel)
+        else:  # NOTE interaction
+            if not await self.check_author_voice(interaction.author, None, interaction):
+                return
+            else:
+                active_voice_client = await self.get_current_voice(interaction.author.voice.channel)
+        if active_voice_client.is_paused():
+            active_voice_client.resume()
+            if message:
                 await message.channel.send(
-                    embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
+                    embed=embeds.simple_message("Resumed",
+                                                "",
+                                                self.client.user),
+                )
+            elif interaction:
+                await interaction.respond(
+                    embed=embeds.simple_message("Resumed",
+                                                "",
+                                                self.client.user),
+                )
+        elif active_voice_client.is_playing():
+            active_voice_client.pause()
+            if message:
+                await message.channel.send(
+                    embed=embeds.simple_message("Paused",
+                                                "",
                                                 self.client.user),
                     delete_after=10
                 )
-                return
-        elif interaction:
-            active_voice_clients = list(filter(lambda voice_client: interaction.custom_id.
-                                               find(str(voice_client.channel.id)) != -1,
-                                               self.client.voice_clients))
-            if len(active_voice_clients) == 0:
+            elif interaction:
                 await interaction.respond(
-                    embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
+                    embed=embeds.simple_message("Paused",
+                                                "",
                                                 self.client.user),
                 )
-                return
         else:
-            logging.warning("unexpected Event in resume")
-            return
-        if active_voice_clients[0].is_paused():
-            active_voice_clients[0].resume()
             if message:
                 await message.channel.send(
-                    embed=embeds.simple_message("Resumed",
-                                                "",
-                                                self.client.user),
-                )
-                return
-            if interaction:
-                await interaction.respond(
-                    embed=embeds.simple_message("Resumed",
-                                                "",
-                                                self.client.user),
-                )
-                return
-        if active_voice_clients[0].is_playing():
-            active_voice_clients[0].pause()
-            if message:
-                await message.channel.send(
-                    embed=embeds.simple_message("Paused",
-                                                "",
+                    embed=embeds.simple_message("ERROR",
+                                                "Nothing to resume or pause",
                                                 self.client.user),
                     delete_after=10
                 )
-                return
-            if interaction:
+            elif interaction:
                 await interaction.respond(
-                    embed=embeds.simple_message("Paused",
-                                                "",
+                    embed=embeds.simple_message("ERROR",
+                                                "Nothing to resume or pause",
                                                 self.client.user),
                 )
-                return
-        if message:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Nothing to resume or pause",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
-        if interaction:
-            await interaction.respond(
-                embed=embeds.simple_message("ERROR",
-                                            "Nothing to resume or pause",
-                                            self.client.user),
-            )
-            return
-        return
 
     async def stop(self, message, interaction=None):
         if message:
-            active_voice_clients = list(
-                filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
-                       self.client.voice_clients))
-            if len(active_voice_clients) == 0:
-                await message.channel.send(
-                    embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
-                                                self.client.user),
-                    delete_after=10
-                )
+            if not await self.check_author_voice(message.author, message, None):
                 return
-        elif interaction:
-            active_voice_clients = list(filter(lambda voice_client: interaction.custom_id.
-                                               find(str(voice_client.channel.id)) != -1,
-                                               self.client.voice_clients))
-            if len(active_voice_clients) == 0:
-                await interaction.respond(
-                    embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
-                                                self.client.user),
-                )
+            else:
+                active_voice_client = await self.get_current_voice(message.author.voice.channel)
+        else:  # NOTE interaction
+            if not await self.check_author_voice(interaction.author, None, interaction):
                 return
-        else:
-            logging.warning("unexpected Event in stop")
-            return
-        if active_voice_clients[0].is_playing() or active_voice_clients[0].is_paused():
-            active_voice_clients[0].stop()
+            else:
+                active_voice_client = await self.get_current_voice(interaction.author.voice.channel)
+        if active_voice_client.is_playing() or active_voice_client.is_paused():
             self.client.check_playing_loop.stop()
+            queue_element = self.queue[self.queue_index]
+            queue_element.voice_client.stop()
+            if queue_element.message is not None:
+                try:
+                    await queue_element.message.delete()
+                except discord.errors.NotFound:
+                    pass
+            if queue_element.info_message is not None:
+                try:
+                    await queue_element.info_message.delete()
+                except discord.errors.NotFound:
+                    pass
             self.queue = []
             self.queue_index = 0
             if message:
@@ -405,59 +367,39 @@ class CommandHandler:
                                                 self.client.user),
                     delete_after=10
                 )
-                return
-            if interaction:
+            elif interaction:
                 await interaction.respond(
                     embed=embeds.simple_message("Stopped",
                                                 "",
                                                 self.client.user),
                 )
-                return
-        if message:
-            await message.channel.send(
-                embed=embeds.simple_message("ERROR",
-                                            "Nothing to stop",
-                                            self.client.user),
-                delete_after=10
-            )
-            return
-        if interaction:
-            await interaction.respond(
-                embed=embeds.simple_message("ERROR",
-                                            "Nothing to stop",
-                                            self.client.user),
-            )
-            return
-        return
-
-    async def volume_set(self, message, interaction=None, status_message="Volume set"):
-        if message:
-            active_voice_clients = list(
-                filter(lambda voice_client: voice_client.channel == message.author.voice.channel,
-                       self.client.voice_clients))
-            if len(active_voice_clients) == 0:
+        else:
+            if message:
                 await message.channel.send(
                     embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
+                                                "Nothing to stop",
                                                 self.client.user),
                     delete_after=10
                 )
-                return
-        elif interaction:
-            active_voice_clients = list(filter(lambda voice_client: interaction.custom_id.
-                                               find(str(voice_client.channel.id)) != -1,
-                                               self.client.voice_clients))
-            if len(active_voice_clients) == 0:
+            elif interaction:
                 await interaction.respond(
                     embed=embeds.simple_message("ERROR",
-                                                "Author not in any voice channel",
+                                                "Nothing to stop",
                                                 self.client.user),
                 )
+
+    async def volume_set(self, message, interaction=None, status_message="Volume set"):
+        if message:
+            if not await self.check_author_voice(message.author, message, None):
                 return
-        else:
-            logging.warning("unexpected Event in stop")
-            return
-        active_voice_clients[0].source.volume = self.volume/100
+            else:
+                active_voice_client = await self.get_current_voice(message.author.voice.channel)
+        else:  # NOTE interaction
+            if not await self.check_author_voice(interaction.author, None, interaction):
+                return
+            else:
+                active_voice_client = await self.get_current_voice(interaction.author.voice.channel)
+        active_voice_client.source.volume = self.volume / 100
         if message:
             await message.channel.send(
                 embed=embeds.simple_message(status_message,
@@ -465,15 +407,12 @@ class CommandHandler:
                                             self.client.user),
                 delete_after=10
             )
-            return
-        if interaction:
+        elif interaction:
             await interaction.respond(
                 embed=embeds.simple_message(status_message,
                                             f"Volume: {int(self.volume)}%",
                                             self.client.user),
             )
-            return
-        return
 
     async def volume_up(self, message, interaction=None):
         self.volume += 10
