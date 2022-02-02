@@ -35,26 +35,35 @@ class CommandHandler:
         self.queue = []
         self.search_handler = SearchHandler()
 
+    @staticmethod
+    async def switch_message_interaction(content=None, embed=None, delete_after=None, message=None, interaction=None):
+        if message:
+            message.channel.send(
+                content=content,
+                embed=embed,
+                delete_after=delete_after
+            )
+        elif interaction:
+            interaction.respond(
+                content=content,
+                embed=embed,
+                # delete_after=delete_after
+            )
+        else:
+            raise Exception("need message or interaction in switch_message_interaction")
+
     async def check_author_voice(self, author, message=None, interaction=None) -> bool:
         if author.voice:
             return True
         else:
-            if message:
-                message.channel.send(
-                    embed=embeds.simple_message("ERROR",
-                                                f"author not in any voice channel",
-                                                self.client.user),
-                    delete_after=10
-                )
-            elif interaction:
-                interaction.respond(
-                    embed=embeds.simple_message("ERROR",
-                                                f"author not in any voice channel",
-                                                self.client.user),
-                    delete_after=10
-                )
-            else:
-                raise Exception("need message or interaction in check_author_voice")
+            await self.switch_message_interaction(
+                embed=embeds.simple_message("ERROR",
+                                            f"author not in any voice channel",
+                                            self.client.user),
+                delete_after=10,
+                message=message,
+                interaction=interaction
+            )
             return False
 
     async def get_current_voice(self, voice_channel) -> discord.VoiceClient:
@@ -75,23 +84,21 @@ class CommandHandler:
             result = result_list[0]
             await result.function(message)
             await message.delete()
-            return
-        if len(result_list) == 0:
+        elif len(result_list) == 0:
             await message.channel.send(
                 embed=embeds.simple_message("ERROR",
                                             f"**Unknown Command:** \"{command}\"",
                                             self.client.user),
                 delete_after=10
             )
-            return
-        await message.channel.send(
-            embed=embeds.simple_message("ERROR",
-                                        f"**Multiple Commands matched:** \"{command}\", {result_list}",
-                                        self.client.user),
-            delete_after=10
-        )
-        logging.warning(f"found multiple commands: {result_list}")
-        return
+        else:
+            await message.channel.send(
+                embed=embeds.simple_message("ERROR",
+                                            f"**Multiple Commands matched:** \"{command}\", {result_list}",
+                                            self.client.user),
+                delete_after=10
+            )
+            logging.warning(f"found multiple commands: {result_list}")
 
     async def help(self, message):
         answer = "__**available commands**__:\n"
@@ -106,20 +113,14 @@ class CommandHandler:
 
     async def join(self, voice_channel, message=None, interaction=None) -> discord.VoiceClient:
         voice_client = await voice_channel.connect()
-        if message:
-            await message.channel.send(
-                embed=embeds.simple_message("Joined",
-                                            f"Joined, {message.author.name} in {voice_channel.name}",
-                                            self.client.user),
-                delete_after=10
-            )
-        elif interaction:
-            interaction.respond(
-                embed=embeds.simple_message("Joined",
-                                            f"Joined, {message.author.name} in {voice_channel.name}",
-                                            self.client.user),
-                delete_after=10
-            )
+        await self.switch_message_interaction(
+            embed=embeds.simple_message("Joined",
+                                        f"Joined, {message.author.name} in {voice_channel.name}",
+                                        self.client.user),
+            delete_after=10,
+            message=message,
+            interaction=interaction
+        )
         return voice_client
 
     async def leave(self, message):
@@ -263,87 +264,56 @@ class CommandHandler:
                 )
         else:
             queue_element = self.queue[self.queue_index]
-            if interaction:
-                await interaction.respond(
-                    embed=embeds.simple_message(
-                        f"ERROR",
-                        f"No more Songs in Queue",
-                        self.client.user),
-                )
-            else:
-                await queue_element.channel.send(
-                    embed=embeds.simple_message(
-                        f"ERROR",
-                        f"No more Songs in Queue",
-                        self.client.user),
-                )
+            await self.switch_message_interaction(
+                embed=embeds.simple_message(
+                    f"ERROR",
+                    f"No more Songs in Queue",
+                    self.client.user),
+                delete_after=10,
+                message=queue_element,
+                interaction=interaction
+            )
 
     async def resume_pause(self, message, interaction=None):
-        if message:
-            if not await self.check_author_voice(message.author, message, None):
-                return
-            else:
-                active_voice_client = await self.get_current_voice(message.author.voice.channel)
-        else:  # NOTE interaction
-            if not await self.check_author_voice(interaction.author, None, interaction):
-                return
-            else:
-                active_voice_client = await self.get_current_voice(interaction.author.voice.channel)
+        if not await self.check_author_voice(message.author, message, interaction):
+            return
+        else:
+            active_voice_client = await self.get_current_voice(message.author.voice.channel)
         if active_voice_client.is_paused():
             active_voice_client.resume()
-            if message:
-                await message.channel.send(
-                    embed=embeds.simple_message("Resumed",
-                                                "",
-                                                self.client.user),
-                )
-            elif interaction:
-                await interaction.respond(
-                    embed=embeds.simple_message("Resumed",
-                                                "",
-                                                self.client.user),
-                )
+            await self.switch_message_interaction(
+                embed=embeds.simple_message("Resumed",
+                                            "",
+                                            self.client.user),
+                delete_after=10,
+                message=message,
+                interaction=interaction
+            )
         elif active_voice_client.is_playing():
             active_voice_client.pause()
-            if message:
-                await message.channel.send(
-                    embed=embeds.simple_message("Paused",
-                                                "",
-                                                self.client.user),
-                    delete_after=10
-                )
-            elif interaction:
-                await interaction.respond(
-                    embed=embeds.simple_message("Paused",
-                                                "",
-                                                self.client.user),
-                )
+            await self.switch_message_interaction(
+                embed=embeds.simple_message("Paused",
+                                            "",
+                                            self.client.user),
+                delete_after=10,
+                message=message,
+                interaction=interaction
+            )
         else:
-            if message:
-                await message.channel.send(
-                    embed=embeds.simple_message("ERROR",
-                                                "Nothing to resume or pause",
-                                                self.client.user),
-                    delete_after=10
-                )
-            elif interaction:
-                await interaction.respond(
-                    embed=embeds.simple_message("ERROR",
-                                                "Nothing to resume or pause",
-                                                self.client.user),
-                )
+            await self.switch_message_interaction(
+                embed=embeds.simple_message("ERROR",
+                                            "Nothing to resume or pause",
+                                            self.client.user),
+                delete_after=10,
+                message=message,
+                interaction=interaction
+            )
 
     async def stop(self, message, interaction=None):
-        if message:
-            if not await self.check_author_voice(message.author, message, None):
-                return
-            else:
-                active_voice_client = await self.get_current_voice(message.author.voice.channel)
-        else:  # NOTE interaction
-            if not await self.check_author_voice(interaction.author, None, interaction):
-                return
-            else:
-                active_voice_client = await self.get_current_voice(interaction.author.voice.channel)
+        if not await self.check_author_voice(message.author, message, interaction):
+            return
+        else:
+            active_voice_client = await self.get_current_voice(message.author.voice.channel)
         if active_voice_client.is_playing() or active_voice_client.is_paused():
             self.client.check_playing_loop.stop()
             queue_element = self.queue[self.queue_index]
@@ -360,33 +330,23 @@ class CommandHandler:
                     pass
             self.queue = []
             self.queue_index = 0
-            if message:
-                await message.channel.send(
-                    embed=embeds.simple_message("Stopped",
-                                                "",
-                                                self.client.user),
-                    delete_after=10
-                )
-            elif interaction:
-                await interaction.respond(
-                    embed=embeds.simple_message("Stopped",
-                                                "",
-                                                self.client.user),
-                )
+            await self.switch_message_interaction(
+                embed=embeds.simple_message("Stopped",
+                                            "",
+                                            self.client.user),
+                delete_after=10,
+                message=message,
+                interaction=interaction
+            )
         else:
-            if message:
-                await message.channel.send(
-                    embed=embeds.simple_message("ERROR",
-                                                "Nothing to stop",
-                                                self.client.user),
-                    delete_after=10
-                )
-            elif interaction:
-                await interaction.respond(
-                    embed=embeds.simple_message("ERROR",
-                                                "Nothing to stop",
-                                                self.client.user),
-                )
+            await self.switch_message_interaction(
+                embed=embeds.simple_message("ERROR",
+                                            "Nothing to stop",
+                                            self.client.user),
+                delete_after=10,
+                message=message,
+                interaction=interaction
+            )
 
     async def volume_set(self, message, interaction=None, status_message="Volume set"):
         if message:
@@ -400,19 +360,14 @@ class CommandHandler:
             else:
                 active_voice_client = await self.get_current_voice(interaction.author.voice.channel)
         active_voice_client.source.volume = self.volume / 100
-        if message:
-            await message.channel.send(
-                embed=embeds.simple_message(status_message,
-                                            f"Volume: {int(self.volume)}%",
-                                            self.client.user),
-                delete_after=10
-            )
-        elif interaction:
-            await interaction.respond(
-                embed=embeds.simple_message(status_message,
-                                            f"Volume: {int(self.volume)}%",
-                                            self.client.user),
-            )
+        await self.switch_message_interaction(
+            embed=embeds.simple_message(status_message,
+                                        f"Volume: {int(self.volume)}%",
+                                        self.client.user),
+            delete_after=10,
+            message=message,
+            interaction=interaction
+        )
 
     async def volume_up(self, message, interaction=None):
         self.volume += 10
