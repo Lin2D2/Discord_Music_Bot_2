@@ -38,19 +38,19 @@ class CommandHandler:
     @staticmethod
     async def switch_message_interaction(content=None, embed=None, delete_after=None, message=None, interaction=None):
         if message:
-            message.channel.send(
+            await message.channel.send(
                 content=content,
                 embed=embed,
                 delete_after=delete_after
             )
         elif interaction:
-            interaction.respond(
+            await interaction.respond(
                 content=content,
                 embed=embed,
                 # delete_after=delete_after
             )
         else:
-            raise Exception("need message or interaction in switch_message_interaction")
+            logging.warning("need message or interaction in switch_message_interaction")
 
     async def check_author_voice(self, author, message=None, interaction=None) -> bool:
         if author.voice:
