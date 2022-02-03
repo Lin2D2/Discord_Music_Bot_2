@@ -69,7 +69,7 @@ class Bot(dc.ComponentsBot):
         elif interaction.custom_id.find("next_button") != -1:
             await self.commands_handler.next(interaction)
         elif interaction.custom_id.find("stop_button") != -1:
-            await self.commands_handler.stop(None, interaction)
+            await self.commands_handler.stop_command(None, interaction)
         elif interaction.custom_id.find("volume_up_button") != -1:
             await self.commands_handler.volume_up(None, interaction)
         elif interaction.custom_id.find("volume_down_button") != -1:
@@ -89,7 +89,11 @@ class Bot(dc.ComponentsBot):
     @tasks.loop(seconds=1)
     async def check_playing_loop(self):
         for voice_client in self.voice_clients:
-            queue_element = self.commands_handler.queue[self.commands_handler.queue_index]
+            settings = list(filter(lambda settings_element: settings_element.voice_id == voice_client.session_id,
+                                   self.commands_handler.guilds_voice_settings))[0]
+            queue_index = settings.queue_index
+            queue = settings.queue
+            queue_element = queue[queue_index]
             # TODO use next command here somehow
             if voice_client.channel.id == queue_element.voice_client.channel.id:
                 if not voice_client.is_paused() and not voice_client.is_playing():
@@ -104,13 +108,14 @@ class Bot(dc.ComponentsBot):
                             await queue_element.info_message.delete()
                         except discord.errors.NotFound:
                             pass
-                    if len(self.commands_handler.queue) - 1 > self.commands_handler.queue_index:
-                        self.commands_handler.queue_index += 1
+                    if len(queue) - 1 > queue_index:
+                        queue_index += 1
                         await self.commands_handler.play(None, None, queue_element)
                     else:
                         self.check_playing_loop.stop()
-                        self.commands_handler.queue = []
-                        self.commands_handler.queue_index = 0
+                        index = self.commands_handler.guilds_voice_settings.index(settings)
+                        self.commands_handler.guilds_voice_settings[index].queue = []
+                        self.commands_handler.guilds_voice_settings[index].queue_index = 0
 
     @tasks.loop(seconds=10)
     async def check_activity_loop(self):
@@ -118,6 +123,7 @@ class Bot(dc.ComponentsBot):
             voice_states = voice_client.channel.voice_states
             if len(voice_states) == 1:
                 logging.info("leaving do to inactivity")
+                await self.commands_handler.stop(voice_client)
                 await voice_client.disconnect()
 
     @tasks.loop(hours=1)

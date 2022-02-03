@@ -24,15 +24,12 @@ class CommandHandler:
             CommandType("next", self.next, "play next song in queue"),
             CommandType("pause", self.resume_pause, "pause current song"),
             CommandType("resume", self.resume_pause, "resume current song"),
-            CommandType("stop", self.stop, "stop current song, and clears queue"),
+            CommandType("stop", self.stop_command, "stop current song, and clears queue"),
             CommandType("volume up", self.volume_up, "global playback volume up"),
             CommandType("volume down", self.volume_down, "global playback volume down"),
         ]
-        # TODO separate by guild
-        self.volume = 30
-        self.queue_index = 0
+        self.guilds_voice_settings = []
         self.active_searches = []
-        self.queue = []
         self.search_handler = SearchHandler()
 
     @staticmethod
@@ -115,12 +112,18 @@ class CommandHandler:
         voice_client = await voice_channel.connect()
         await self.switch_message_interaction(
             embed=embeds.simple_message("Joined",
-                                        f"Joined, {message.author.name} in {voice_channel.name}",
+                                        f"Joined {voice_channel.name}",
                                         self.client.user),
             delete_after=10,
             message=message,
             interaction=interaction
         )
+        settings = list(filter(lambda settings_element: settings_element.guild_id == voice_channel.guild.id,
+                               self.guilds_voice_settings))
+        if len(settings) == 0:
+            self.guilds_voice_settings.append(GuildVoiceSettings(voice_channel.guild.id, voice_client.session_id))
+        else:
+            settings[0].voice_id = voice_client.session_id
         return voice_client
 
     async def leave(self, message):
@@ -132,6 +135,9 @@ class CommandHandler:
                                             self.client.user),
                 delete_after=10
             )
+            settings = list(filter(lambda settings_element: settings_element.guild_id == current_voice_client.guild.id,
+                                   self.guilds_voice_settings))
+            settings[0].voice_id = None
             await current_voice_client.disconnect()
             return
 
@@ -166,10 +172,10 @@ class CommandHandler:
             )
             self.active_searches.append(ActiveSearchType(custom_id, message, send_message, search_results))
 
-    async def play(self, message, search_result=None, queue=False):
-        if queue:
-            search_result = self.queue[self.queue_index].search_result
-            active_voice_client = self.queue[self.queue_index].voice_client
+    async def play(self, message, search_result=None, current_queue_element=None):
+        if current_queue_element:
+            search_result = current_queue_element.search_result
+            active_voice_client = current_queue_element.voice_client
         else:
             if not search_result:
                 search_query = message.content.replace(f"{self.prefix}search", ""). \
@@ -182,17 +188,22 @@ class CommandHandler:
                 active_voice_client = await self.get_current_voice(message.author.voice.channel)
             else:
                 return
+        settings = list(filter(lambda settings_element: settings_element.voice_id == active_voice_client.session_id,
+                               self.guilds_voice_settings))[0]
+        volume = settings.volume
+        queue_index = settings.queue_index
+        queue = settings.queue
         message_send_return = None
         info_message_send_return = None
         if not active_voice_client.is_playing():
             if not message:
-                channel = self.queue[self.queue_index].channel
+                channel = current_queue_element.channel
             else:
                 channel = message.channel
-            if len(self.queue) == 0:
+            if len(queue) == 0:
                 queued_after = 0
             else:
-                queued_after = len(self.queue) - (self.queue_index + 1)
+                queued_after = len(queue) - (queue_index + 1)
             message_send = channel.send(
                 embed=embeds.search_results_message(
                     "Playing",
@@ -213,30 +224,37 @@ class CommandHandler:
                 ],
             )
             source = discord.FFmpegPCMAudio(search_result.play_url)
-            active_voice_client.play(discord.PCMVolumeTransformer(source, volume=self.volume / 100))
+            active_voice_client.play(discord.PCMVolumeTransformer(source, volume=volume / 100))
             message_send_return = await message_send
-            if len(self.queue) - 1 >= self.queue_index:
-                self.queue[self.queue_index].message = message_send_return
+            if len(queue) - 1 >= queue_index:
+                index = self.guilds_voice_settings.index(settings)
+                self.guilds_voice_settings[index].queue.message = message_send_return
         else:
             info_message_send_return = await message.channel.send(
                 embed=embeds.search_results_message(
                     f"Queued {search_result.title}",
-                    f"Songs in queue after: {len(self.queue) - self.queue_index}",
+                    f"Songs in queue after: {len(queue) - queue_index}",
                     [search_result],
                     self.client.user),
             )
-            self.queue[self.queue_index - 1].info_message = info_message_send_return
-        if not queue:
+            queue[queue_index - 1].info_message = info_message_send_return
+        if not current_queue_element:
             logging.info(f"added {search_result.title} to queue")
-            self.queue.append(QueueType(search_result, message.channel, message_send_return,
-                                        info_message_send_return, active_voice_client))
-        if len(self.queue) == 1:
+            index = self.guilds_voice_settings.index(settings)
+            self.guilds_voice_settings[index].queue.append(
+                QueueType(search_result, message.channel, message_send_return,
+                          info_message_send_return, active_voice_client))
+        if len(queue) == 1:
             await self.client.before_check_playing_loop(active_voice_client)
         return
 
     async def next(self, interaction=None):
-        if len(self.queue) - 1 > self.queue_index:
-            queue_element = self.queue[self.queue_index]
+        settings = list(filter(lambda settings_element: settings_element.guild_id == interaction.guild.id,
+                               self.guilds_voice_settings))[0]
+        queue_index = settings.queue_index
+        queue = settings.queue
+        if len(queue) - 1 > queue_index:
+            queue_element = queue[queue_index]
             queue_element.voice_client.stop()
             if queue_element.message is not None:
                 try:
@@ -248,13 +266,13 @@ class CommandHandler:
                     await queue_element.info_message.delete()
                 except discord.errors.NotFound:
                     pass
-            self.queue_index += 1
-            if self.queue[self.queue_index].info_message is not None:
+            queue_index += 1
+            if queue[queue_index].info_message is not None:
                 try:
-                    await self.queue[self.queue_index].info_message.delete()
+                    await queue[queue_index].info_message.delete()
                 except discord.errors.NotFound:
                     pass
-            await self.play(None, None, self.queue[self.queue_index])
+            await self.play(None, None, queue[queue_index])
             if interaction:
                 await interaction.respond(
                     embed=embeds.simple_message(
@@ -263,7 +281,7 @@ class CommandHandler:
                         self.client.user),
                 )
         else:
-            queue_element = self.queue[self.queue_index]
+            queue_element = queue[queue_index]
             await self.switch_message_interaction(
                 embed=embeds.simple_message(
                     f"ERROR",
@@ -309,14 +327,22 @@ class CommandHandler:
                 interaction=interaction
             )
 
-    async def stop(self, message, interaction=None):
-        if not await self.check_author_voice(message.author, message, interaction):
+    async def stop_command(self, message, interaction=None):
+        if not await self.check_author_voice(message.author if message else interaction.author, message, interaction):
             return
         else:
-            active_voice_client = await self.get_current_voice(message.author.voice.channel)
-        if active_voice_client.is_playing() or active_voice_client.is_paused():
+            active_voice_client = await self.get_current_voice(message.author.voice.channel
+                                                               if message else interaction.author.voice.channel)
+        await self.stop(active_voice_client, message, interaction)
+
+    async def stop(self, voice_client, message=None, interaction=None):
+        if voice_client.is_playing() or voice_client.is_paused():
+            settings = list(filter(lambda settings_element: settings_element.voice_id == voice_client.session_id,
+                                   self.guilds_voice_settings))[0]
+            queue_index = settings.queue_index
+            queue = settings.queue
             self.client.check_playing_loop.stop()
-            queue_element = self.queue[self.queue_index]
+            queue_element = queue[queue_index]
             queue_element.voice_client.stop()
             if queue_element.message is not None:
                 try:
@@ -328,8 +354,9 @@ class CommandHandler:
                     await queue_element.info_message.delete()
                 except discord.errors.NotFound:
                     pass
-            self.queue = []
-            self.queue_index = 0
+            index = self.guilds_voice_settings.index(settings)
+            self.guilds_voice_settings[index].queue = []
+            self.guilds_voice_settings[index].queue_index = 0
             await self.switch_message_interaction(
                 embed=embeds.simple_message("Stopped",
                                             "",
@@ -348,7 +375,7 @@ class CommandHandler:
                 interaction=interaction
             )
 
-    async def volume_set(self, message, interaction=None, status_message="Volume set"):
+    async def volume_set(self, message, interaction=None, value=0, status_message="Volume set"):
         if message:
             if not await self.check_author_voice(message.author, message, None):
                 return
@@ -359,10 +386,15 @@ class CommandHandler:
                 return
             else:
                 active_voice_client = await self.get_current_voice(interaction.author.voice.channel)
-        active_voice_client.source.volume = self.volume / 100
+        settings = list(filter(lambda settings_element: settings_element.voice_id == active_voice_client.session_id,
+                               self.guilds_voice_settings))[0]
+        index = self.guilds_voice_settings.index(settings)
+        self.guilds_voice_settings[index].volume += value
+        volume = settings.volume
+        active_voice_client.source.volume = volume / 100
         await self.switch_message_interaction(
             embed=embeds.simple_message(status_message,
-                                        f"Volume: {int(self.volume)}%",
+                                        f"Volume: {int(volume)}%",
                                         self.client.user),
             delete_after=10,
             message=message,
@@ -370,13 +402,11 @@ class CommandHandler:
         )
 
     async def volume_up(self, message, interaction=None):
-        self.volume += 10
-        await self.volume_set(message, interaction, "Volume up")
+        await self.volume_set(message, interaction, 10, "Volume up")
         return
 
     async def volume_down(self, message, interaction=None):
-        self.volume -= 10
-        await self.volume_set(message, interaction, "Volume down")
+        await self.volume_set(message, interaction, -10, "Volume down")
         return
 
 
@@ -402,3 +432,12 @@ class QueueType:
         self.message = message
         self.info_message = info_message
         self.voice_client = voice_client
+
+
+class GuildVoiceSettings:
+    def __init__(self, guild_id, voice_id):
+        self.guild_id = guild_id
+        self.voice_id = voice_id
+        self.volume = 30
+        self.queue_index = 0
+        self.queue = []
